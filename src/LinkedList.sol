@@ -1,15 +1,22 @@
 /**
  * SPDX-License-Identifier:UNLICENSED
- * @author:<Saediek@proton.me>
  */
 pragma solidity ^0.8;
 
-//A library for linked list and it's operations..
+/// @title LinkedList
+/// @author @Saediek
+/// @notice Linked List library and related functionalities..
 
 library LinkedList {
-    //A node is just a struct..
-    //containing the data and the nxt-pointer
-    uint256 constant ROOT_SLOT = uint256(keccak256("LINKED-LIST-ROOT-SLOT"));
+    //Kinda of an option alias for
+    enum Option {
+        None,
+        Some
+    }
+    ///A node is just a struct.. which contains a data and pointer to the next node(.ie evm storage slot)
+
+    uint256 public constant ROOT_SLOT =
+        uint256(keccak256("LINKED-LIST-ROOT-SLOT"));
 
     /**
      * @dev A node is represented as a struct  with fields:{data,nxtNodePointer}
@@ -24,7 +31,7 @@ library LinkedList {
     }
 
     /**
-     *
+     * @dev returns the node stored at the root-Slot..
      */
     function getRoot() public view returns (node memory _root) {
         uint256 _rootSlot = ROOT_SLOT;
@@ -32,6 +39,7 @@ library LinkedList {
         uint256 _data;
 
         assembly {
+            //Load from storage the data value stored at the '_rootSlot'
             _data := sload(_rootSlot)
             pointerToNextNode := sload(add(_rootSlot, 0x01))
         }
@@ -48,23 +56,28 @@ library LinkedList {
         }
     }
 
-    //returns all list elements..
+    /**
+     *@dev returns an array of the list..
+     */
     function traverseLinkedList()
         public
         view
         returns (node[] memory linkedlists)
     {
+        uint256 currentSlot = ROOT_SLOT;
         uint256 _listLength = getLinkedListLength();
-        //if list is empty
-        if (_listLength < 1) {
+        //if list is empty return an empty list
+        if (_listLength == 0) {
             return linkedlists;
         }
         linkedlists = new node[](_listLength);
         node memory root = getRoot();
         uint256 indices;
-        while (root.nextNodeSlot != uint256(0) || root.data != 0) {
+        //While current node not == Option::None
+        while (currentSlot != uint256(Option.None)) {
             linkedlists[indices] = root;
-            root = getNodeAtSlot(root.nextNodeSlot);
+            currentSlot = root.nextNodeSlot;
+            root = getNodeAtSlot(root.nextNodeSlot); //if empty node attributes are empty..
             indices++;
         }
     }
@@ -82,36 +95,33 @@ library LinkedList {
         _nextNode.nextNodeSlot = _pointer;
     }
 
-    //inserts
+    //inserts 'data' into the tailSlot
     function insertNode(uint256 _data) external {
-        node memory _root = getRoot();
         //if node is empty store data in node
-        if (_root.data == 0 && _root.nextNodeSlot == 0) {
-            uint256 _rootSlot = ROOT_SLOT;
+        uint256 _tailSlot = getTailSlot();
+        if (_tailSlot == ROOT_SLOT) {
             assembly {
-                sstore(_rootSlot, _data)
+                sstore(_tailSlot, _data)
             }
-            return;
         } else {
-            uint256 _lastSlot = getTailSlot();
             assembly {
-                //update the nextNodeSlot of the tail node to point to the new
-                //node and then the data field
-                sstore(add(_lastSlot, 0x01), add(_lastSlot, 0x02))
-                sstore(add(_lastSlot, 0x02), _data)
+                //updates the 'tailNode pointer' and the data slot of the next slot..
+                sstore(add(0x01, _tailSlot), add(0x02, _tailSlot))
+                sstore(add(0x02, _tailSlot), _data)
             }
         }
     }
 
     /**
-     *Sorts the Linked List
+     *@dev Sort the list using the insertion sort algorithm..
      */
+    //@todo Replace with timSort..
     function sortList() external {
         node[] memory full_list = traverseLinkedList();
         full_list = _sortList(full_list);
         uint256 _rootSlot = ROOT_SLOT;
         for (uint8 i; i < full_list.length; i++) {
-            //replaces the nextSlode previous parameter
+            //replaces the nextNode previous parameter
             full_list[i].nextNodeSlot = _rootSlot + 2;
             _insertAtSlot(full_list[i], _rootSlot);
             _rootSlot += 2;
@@ -119,7 +129,7 @@ library LinkedList {
     }
 
     /// @notice Sorts the linkedList using inserionSort
-    //@todo replce with tim-sort
+    //@todo replace with tim-sort
     /// @param _nodes :fulllist of nodes
     function _sortList(
         node[] memory _nodes
@@ -157,8 +167,8 @@ library LinkedList {
     ) external view returns (node memory _node, bool _exists) {
         node memory _head = getRoot();
 
-        uint256 previousSlot = _head.nextNodeSlot;
-        while (_head.nextNodeSlot != 0 || _head.data != 0) {
+        uint256 currentNode = ROOT_SLOT;
+        while (currentNode != uint256(Option.None)) {
             if (_head.data == _data) {
                 _node.data = _data;
                 _node.nextNodeSlot = _head.nextNodeSlot;
@@ -166,7 +176,7 @@ library LinkedList {
 
                 break;
             }
-            previousSlot = _head.nextNodeSlot;
+            currentNode = _head.nextNodeSlot;
             _head = getNodeAtSlot(_head.nextNodeSlot);
         }
     }
@@ -187,15 +197,17 @@ library LinkedList {
      */
     function getTailSlot() internal view returns (uint256) {
         node memory head = getRoot();
-        uint256 previousSlot = ROOT_SLOT;
+        uint256 previousSlot = 0;
+        uint256 currentSlot = ROOT_SLOT;
         //if the data is of the root and the nextSlot is 0 the linked
         //list is an empty list!!
         if (head.data == 0 && head.nextNodeSlot == 0) {
             return ROOT_SLOT;
         }
-        while (head.nextNodeSlot != 0) {
-            previousSlot = head.nextNodeSlot;
-            head = getNodeAtSlot(head.nextNodeSlot);
+        while (currentSlot != uint256(Option.None)) {
+            previousSlot = currentSlot;
+            currentSlot = head.nextNodeSlot;
+            head = getNodeAtSlot(currentSlot);
         }
         return previousSlot;
     }
@@ -218,8 +230,8 @@ library LinkedList {
             }
             return true;
         }
-
-        while (_head.nextNodeSlot != 0 || _head.data != 0) {
+        uint256 currentSlot = ROOT_SLOT;
+        while (currentSlot != uint256(Option.None)) {
             if (_head.data == _data) {
                 uint256 nxtSlot = _head.nextNodeSlot;
                 assembly {
@@ -228,8 +240,10 @@ library LinkedList {
                 }
                 return true;
             }
-            previousSlot = _head.nextNodeSlot;
-            _head = getNodeAtSlot(_head.nextNodeSlot);
+            //Store the previous node before updating the currentSlot variable..
+            previousSlot = currentSlot;
+            currentSlot = _head.nextNodeSlot;
+            _head = getNodeAtSlot(currentSlot);
         }
 
         return false;
